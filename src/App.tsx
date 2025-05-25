@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import "./App.css";
 import { Document, Page, pdfjs } from "react-pdf";
 import HTMLFlipBook from "react-pageflip";
+import { io } from "socket.io-client";
 
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -10,6 +11,8 @@ import "react-pdf/dist/Page/TextLayer.css";
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
 
 type Role = "reader" | "viewer";
+
+const socket = io("https://flipbook-backend-1.onrender.com"); // Заменить на адрес своего сервера
 
 const App = () => {
   const [pageText, setPageText] = useState<string>("");
@@ -20,18 +23,16 @@ const App = () => {
   const [pdfText, setPdfText] = useState<Record<number, string>>({});
   const flipBookRef = useRef<any>(null);
 
-  // When the PDF loads successfully
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
     setPdfFile(pdf);
-    setCurrentPage(0); // Go to first page
+    setCurrentPage(0);
   };
 
-  // Fetch and cache text content for a specific page
   const fetchPageText = async (pageIndex: number) => {
     if (!pdfFile) return;
     try {
-      const page = await pdfFile.getPage(pageIndex + 1); // PDF pages are 1-based
+      const page = await pdfFile.getPage(pageIndex + 1);
       const content = await page.getTextContent();
       const strings = content.items.map((item: any) => item.str);
       const text = strings.join(" ");
@@ -41,7 +42,6 @@ const App = () => {
     }
   };
 
-  // Fetch missing page text when currentPage changes
   useEffect(() => {
     if (
       pdfFile &&
@@ -51,17 +51,13 @@ const App = () => {
     ) {
       fetchPageText(currentPage);
     }
-  }, [currentPage, pdfFile, pdfText, numPages,]);
-
-
-
+  }, [currentPage, pdfFile, pdfText, numPages]);
 
   useEffect(() => {
     if (pdfText[currentPage]) {
       setPageText(pdfText[currentPage]);
     }
   }, [currentPage, pdfText]);
-
 
   const speakText = (text: string) => {
     window.speechSynthesis.cancel();
@@ -77,18 +73,31 @@ const App = () => {
   const flipPrev = () => {
     if (flipBookRef.current?.pageFlip) {
       flipBookRef.current.pageFlip().flipPrev();
-      window.speechSynthesis.cancel()
+      window.speechSynthesis.cancel();
     }
   };
 
   const flipNext = () => {
     if (flipBookRef.current?.pageFlip) {
       flipBookRef.current.pageFlip().flipNext();
-      window.speechSynthesis.cancel()
+      window.speechSynthesis.cancel();
     }
   };
 
   const isReader = role === "reader";
+
+  // 📡 Получаем flip-события от других
+  useEffect(() => {
+    socket.on("page-flip", (page: number) => {
+      if (role === "viewer") {
+        flipBookRef.current?.pageFlip().flip(page);
+      }
+    });
+
+    return () => {
+      socket.off("page-flip");
+    };
+  }, [role]);
 
   return (
     <div className="App">
@@ -143,9 +152,13 @@ const App = () => {
             const page = Number(e.data);
             if (!isNaN(page)) {
               setCurrentPage(page);
-              setPageText(""); // Clear old text while loading
+              setPageText("");
+
+              if (role === "reader") {
+                socket.emit("page-flip", page); // отправка события другим
+              }
             }
-            window.speechSynthesis.cancel()
+            window.speechSynthesis.cancel();
           }}
         >
           {Array.from(new Array(numPages), (_, i) => (
@@ -181,7 +194,6 @@ const App = () => {
           </button>
         </div>
       )}
-
     </div>
   );
 };
