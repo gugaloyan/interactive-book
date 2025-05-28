@@ -7,26 +7,36 @@ import { io } from "socket.io-client";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// Set PDF.js worker URL
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
 
 type Role = "reader" | "viewer";
 
-const socket = io("https://flipbook-backend-1.onrender.com"); // Заменить на адрес своего сервера
+const socket = io("https://flipbook-backend-1.onrender.com");
 
 const App = () => {
-  const [pageText, setPageText] = useState<string>("");
   const [role, setRole] = useState<Role>("viewer");
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [pdfFile, setPdfFile] = useState<any>(null);
   const [pdfText, setPdfText] = useState<Record<number, string>>({});
+  const [pageText, setPageText] = useState<string>("");
   const flipBookRef = useRef<any>(null);
+
+// Перейти на ту же страницу после смены роли
+useEffect(() => {
+  if (flipBookRef.current) {
+    flipBookRef.current.pageFlip().flip(currentPage);
+  }
+
+  if (role === "reader") {
+    socket.emit("page-flip", currentPage);
+  }
+}, [role]);
+
 
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
     setPdfFile(pdf);
-    setCurrentPage(0);
   };
 
   const fetchPageText = async (pageIndex: number) => {
@@ -38,17 +48,12 @@ const App = () => {
       const text = strings.join(" ");
       setPdfText((prev) => ({ ...prev, [pageIndex]: text }));
     } catch (error) {
-      console.error("Error fetching page text:", error);
+      console.error("Ошибка при извлечении текста:", error);
     }
   };
 
   useEffect(() => {
-    if (
-      pdfFile &&
-      currentPage >= 0 &&
-      currentPage < numPages &&
-      !pdfText[currentPage]
-    ) {
+    if (pdfFile && currentPage >= 0 && currentPage < numPages && !pdfText[currentPage]) {
       fetchPageText(currentPage);
     }
   }, [currentPage, pdfFile, pdfText, numPages]);
@@ -71,26 +76,23 @@ const App = () => {
   };
 
   const flipPrev = () => {
-    if (flipBookRef.current?.pageFlip) {
-      flipBookRef.current.pageFlip().flipPrev();
-      window.speechSynthesis.cancel();
-    }
+    flipBookRef.current?.pageFlip().flipPrev();
+    window.speechSynthesis.cancel();
   };
 
   const flipNext = () => {
-    if (flipBookRef.current?.pageFlip) {
-      flipBookRef.current.pageFlip().flipNext();
-      window.speechSynthesis.cancel();
-    }
+    flipBookRef.current?.pageFlip().flipNext();
+    window.speechSynthesis.cancel();
   };
 
   const isReader = role === "reader";
 
-  // 📡 Получаем flip-события от других
+  // При подключении получаем текущую страницу от сервера
   useEffect(() => {
     socket.on("page-flip", (page: number) => {
-      if (role === "viewer") {
+      if (role === "viewer" && flipBookRef.current?.pageFlip().getCurrentPageIndex() !== page) {
         flipBookRef.current?.pageFlip().flip(page);
+        setCurrentPage(page);
       }
     });
 
@@ -134,31 +136,31 @@ const App = () => {
           maxWidth={1000}
           minHeight={400}
           maxHeight={1536}
-          drawShadow={true}
+          drawShadow
           flippingTime={1000}
-          usePortrait={true}
+          usePortrait
           startZIndex={0}
-          autoSize={true}
-          clickEventForward={true}
-          useMouseEvents={isReader}
+          autoSize
+          clickEventForward
+          useMouseEvents={false}
           swipeDistance={30}
-          showPageCorners={true}
-          disableFlipByClick={role !== "reader"}
+          showPageCorners
+          disableFlipByClick={!isReader}
           style={{ margin: "0 auto" }}
           maxShadowOpacity={0.5}
           showCover={false}
-          mobileScrollSupport={true}
+          mobileScrollSupport
           onFlip={(e) => {
             const page = Number(e.data);
             if (!isNaN(page)) {
               setCurrentPage(page);
               setPageText("");
 
-              if (role === "reader") {
-                socket.emit("page-flip", page); // отправка события другим
+              if (isReader) {
+                socket.emit("page-flip", page);
               }
+              window.speechSynthesis.cancel();
             }
-            window.speechSynthesis.cancel();
           }}
         >
           {Array.from(new Array(numPages), (_, i) => (
@@ -173,21 +175,17 @@ const App = () => {
         </HTMLFlipBook>
       </Document>
 
-      {role === "reader" && (
+      {isReader && (
         <div className="controls">
           <button onClick={flipPrev}>⬅ Prev</button>
           <button onClick={flipNext}>Next ➡</button>
           <button
             onClick={() =>
-              speakText(
-                pageText.trim()
-                  ? pageText
-                  : `Page ${currentPage + 1 || 1} content is loading...`
-              )
+              speakText(pageText.trim() || `Page ${currentPage + 1} content is loading...`)
             }
             disabled={!pageText.trim()}
           >
-            🔊 Read Page {currentPage + 1 || 1}
+            🔊 Read Page {currentPage + 1}
           </button>
           <button onClick={() => window.speechSynthesis.cancel()}>
             ⏹ Stop Reading
