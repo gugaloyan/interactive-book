@@ -24,14 +24,12 @@ const App = () => {
 
 // Перейти на ту же страницу после смены роли
 useEffect(() => {
-  if (flipBookRef.current) {
-    flipBookRef.current.pageFlip().flip(currentPage);
-  }
-
-  if (role === "reader") {
-    socket.emit("page-flip", currentPage);
+  const flipBook = flipBookRef.current?.pageFlip();
+  if (flipBook && typeof flipBook.flip === "function") {
+    flipBook.flip(currentPage);
   }
 }, [role]);
+
 
 
   const onDocumentLoadSuccess = (pdf: any) => {
