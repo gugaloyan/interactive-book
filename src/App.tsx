@@ -90,16 +90,23 @@ const App = () => {
 
   const isReader = role === "reader";
 
-  useEffect(() => {
-  socket.on("page-flip", (page: number) => {
+useEffect(() => {
+  const flipBook = flipBookRef.current?.pageFlip();
+
+  const handlePageFlip = (page: number) => {
     console.log("📥 Viewer received flip:", page);
-    const flipBook = flipBookRef.current?.pageFlip();
     if (role === "viewer" && flipBook && flipBook.getCurrentPageIndex() !== page) {
       isFlipping.current = true;
       flipBook.flip(page);
       setCurrentPage(page);
     }
-  });
+  };
+
+  socket.on("page-flip", handlePageFlip);
+
+  return () => {
+    socket.off("page-flip", handlePageFlip);
+  };
 }, [role]);
 
 
@@ -156,15 +163,16 @@ const App = () => {
           onFlip={(e) => {
             const page = Number(e.data);
             if (!isNaN(page)) {
-              setCurrentPage(page);
-              setPageText("");
-
-              if (isReader) {
-                isFlipping.current = true;
-                socket.emit("page-flip", page);
-                console.log("emit page flip:", page);
+              if (!isFlipping.current) {
+                setCurrentPage(page);
+                setPageText("");
+                if (isReader) {
+                  socket.emit("page-flip", page);
+                  console.log("emit page flip:", page);
+                }
+              } else {
+                isFlipping.current = false;
               }
-
               window.speechSynthesis.cancel();
             }
           }}
