@@ -95,25 +95,24 @@ const App = () => {
 
   const isReader = role === "reader";
 
-  // Один раз подписываемся на событие "page-flip"
-  useEffect(() => {
-    socket.on("page-flip", (page: number) => {
-      console.log("📥 Viewer received flip:", page);
+useEffect(() => {
+  const handlePageFlip = (page: number) => {
+    console.log("📥 Received flip:", page);
+    const flipBook = flipBookRef.current?.pageFlip();
+    if (flipBook && flipBook.getCurrentPageIndex() !== page) {
+      isFlipping.current = true;
+      flipBook.flip(page);
+      setCurrentPage(page);
+    }
+  };
 
-      const flipBook = flipBookRef.current?.pageFlip();
-      const isViewer = roleRef.current === "viewer";
+  socket.on("page-flip", handlePageFlip);
 
-      if (flipBook && isViewer && flipBook.getCurrentPageIndex() !== page) {
-        isFlipping.current = true;
-        flipBook.flip(page);
-        setCurrentPage(page);
-      }
-    });
+  return () => {
+    socket.off("page-flip", handlePageFlip); // Очистка обработчика
+  };
+}, []);
 
-    return () => {
-      socket.off("page-flip");
-    };
-  }, []);
 
   return (
     <div className="App">
