@@ -113,6 +113,20 @@ useEffect(() => {
   };
 }, []);
 
+useEffect(() => {
+  if (role === "reader") {
+    const timer = setTimeout(() => {
+      if (socket.connected) {
+        socket.emit("reset-page");
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+
 
   return (
     <div className="App">
