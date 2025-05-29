@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import "./App.css";
 import { Document, Page, pdfjs } from "react-pdf";
 import HTMLFlipBook from "react-pageflip";
@@ -7,11 +7,12 @@ import { io } from "socket.io-client";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
+// Set worker source for PDF.js
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
 
 type Role = "reader" | "viewer";
 
-// Connect socket
+// Connect to socket server
 const socket = io("https://flipbook-backend-1.onrender.com");
 
 const App = () => {
@@ -24,50 +25,49 @@ const App = () => {
 
   const flipBookRef = useRef<any>(null);
   const isFlipping = useRef(false);
-
   const roleRef = useRef<Role>(role);
   roleRef.current = role;
 
-  // When PDF is loaded
+  // PDF loaded successfully
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
     setPdfFile(pdf);
   };
 
-  // Fetch page text on demand
-  const fetchPageText = async (pageIndex: number) => {
-    if (!pdfFile) return;
+  // Fetch text for a specific page
+  const fetchPageText = useCallback(async (pageIndex: number) => {
+    if (!pdfFile || pdfText[pageIndex]) return;
+
     try {
       const page = await pdfFile.getPage(pageIndex + 1);
       const content = await page.getTextContent();
-      const strings = content.items.map((item: any) => item.str);
-      const text = strings.join(" ");
+      const text = content.items.map((item: any) => item.str).join(" ");
       setPdfText((prev) => ({ ...prev, [pageIndex]: text }));
     } catch (error) {
       console.error("Error extracting text:", error);
     }
-  };
+  }, [pdfFile, pdfText]);
 
   // Load text for current page
   useEffect(() => {
+    let cancelled = false;
     if (pdfFile && currentPage >= 0 && currentPage < numPages && !pdfText[currentPage]) {
       fetchPageText(currentPage);
     }
-  }, [currentPage, pdfFile, pdfText, numPages]);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPage, pdfFile, numPages, fetchPageText, pdfText]);
 
-  // Update pageText when pdfText updates for current page
+  // Update visible page text
   useEffect(() => {
-    if (pdfText[currentPage]) {
-      setPageText(pdfText[currentPage]);
-    }
+    setPageText(pdfText[currentPage] || "");
   }, [currentPage, pdfText]);
 
-  // Sync page flip from socket
+  // Socket listeners for page flip and reset
   useEffect(() => {
     const handlePageFlip = (page: number) => {
-      // Ignore if already flipping to avoid infinite loops
       if (isFlipping.current) return;
-
       const flipBook = flipBookRef.current?.pageFlip();
       if (flipBook && flipBook.getCurrentPageIndex() !== page) {
         isFlipping.current = true;
@@ -76,7 +76,6 @@ const App = () => {
       }
     };
 
-    // When reset-page received, flip all to page 0
     const handleResetPage = () => {
       const flipBook = flipBookRef.current?.pageFlip();
       if (flipBook) {
@@ -95,13 +94,13 @@ const App = () => {
     };
   }, []);
 
-  // Emit page flip when user flips (only if role=reader)
+  // Emit page flip
   const onFlip = (e: any) => {
     const page = Number(e.data);
     if (isNaN(page)) return;
 
     setCurrentPage(page);
-    setPageText(""); // Reset page text, will fetch again in effect
+    setPageText("");
 
     if (roleRef.current === "reader" && !isFlipping.current) {
       socket.emit("page-flip", page);
@@ -112,29 +111,24 @@ const App = () => {
     window.speechSynthesis.cancel();
   };
 
-  // When role changes, do NOT reset page
-  // Only emit reset-page when page is refreshed and role is reader
+  // Handle role change to reader
   useEffect(() => {
     if (role === "reader") {
-      // On mount or role switch to reader, emit reset-page after short delay
       const timer = setTimeout(() => {
         if (socket.connected) {
           socket.emit("reset-page");
-          // Also reset local page to 0
-          setCurrentPage(0);
           const flipBook = flipBookRef.current?.pageFlip();
           if (flipBook) {
             isFlipping.current = true;
             flipBook.flip(0);
           }
+          setCurrentPage(0);
         }
       }, 100);
-
       return () => clearTimeout(timer);
     }
   }, [role]);
 
-  // Flip controls only for reader
   const flipPrev = () => {
     flipBookRef.current?.pageFlip().flipPrev();
     window.speechSynthesis.cancel();
@@ -158,7 +152,6 @@ const App = () => {
 
   const isReader = role === "reader";
 
-  // Initialize flipbook to currentPage on load
   const handleBookInit = () => {
     const flipBook = flipBookRef.current?.pageFlip();
     if (flipBook && typeof flipBook.flip === "function") {
@@ -173,13 +166,7 @@ const App = () => {
 
       <button
         onClick={toggleRole}
-        style={{
-          position: "fixed",
-          top: 10,
-          right: 10,
-          zIndex: 999,
-          padding: "8px 12px",
-        }}
+        style={{ position: "fixed", top: 10, right: 10, zIndex: 999, padding: "8px 12px" }}
       >
         Role: {role}
       </button>
