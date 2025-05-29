@@ -21,16 +21,21 @@ const App = () => {
   const [pdfText, setPdfText] = useState<Record<number, string>>({});
   const [pageText, setPageText] = useState<string>("");
   const flipBookRef = useRef<any>(null);
+  const isFlipping = useRef(false);
 
-// Перейти на ту же страницу после смены роли
-useEffect(() => {
-  const flipBook = flipBookRef.current?.pageFlip();
-  if (flipBook && typeof flipBook.flip === "function") {
-    flipBook.flip(currentPage);
-  }
-}, [role]);
+  const handleBookInit = () => {
+    const flipBook = flipBookRef.current?.pageFlip();
+    if (flipBook && typeof flipBook.flip === "function") {
+      flipBook.flip(currentPage);
+    }
+  };
 
-
+  useEffect(() => {
+    const flipBook = flipBookRef.current?.pageFlip();
+    if (flipBook && typeof flipBook.flip === "function") {
+      flipBook.flip(currentPage);
+    }
+  }, [role]);
 
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
@@ -85,11 +90,12 @@ useEffect(() => {
 
   const isReader = role === "reader";
 
-  // При подключении получаем текущую страницу от сервера
   useEffect(() => {
     socket.on("page-flip", (page: number) => {
-      if (role === "viewer" && flipBookRef.current?.pageFlip().getCurrentPageIndex() !== page) {
-        flipBookRef.current?.pageFlip().flip(page);
+      const flipBook = flipBookRef.current?.pageFlip();
+      if (role === "viewer" && flipBook && flipBook.getCurrentPageIndex() !== page) {
+        isFlipping.current = true;
+        flipBook.flip(page);
         setCurrentPage(page);
       }
     });
@@ -101,7 +107,7 @@ useEffect(() => {
 
   return (
     <div className="App">
-      <h1>📖 Interactive Book</h1>
+      <h1>📖 Interactive Book 1</h1>
 
       <button
         onClick={toggleRole}
@@ -148,6 +154,7 @@ useEffect(() => {
           maxShadowOpacity={0.5}
           showCover={false}
           mobileScrollSupport
+          onInit={handleBookInit}
           onFlip={(e) => {
             const page = Number(e.data);
             if (!isNaN(page)) {
@@ -155,8 +162,10 @@ useEffect(() => {
               setPageText("");
 
               if (isReader) {
+                isFlipping.current = true;
                 socket.emit("page-flip", page);
               }
+
               window.speechSynthesis.cancel();
             }
           }}
