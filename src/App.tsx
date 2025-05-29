@@ -11,7 +11,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pd
 
 type Role = "reader" | "viewer";
 
-// Подключаем сокет
 const socket = io("https://flipbook-backend-1.onrender.com");
 
 const App = () => {
@@ -23,27 +22,37 @@ const App = () => {
   const [pageText, setPageText] = useState<string>("");
   const flipBookRef = useRef<any>(null);
   const isFlipping = useRef(false);
+  const roleRef = useRef<Role>("viewer");
 
-  const roleRef = useRef<Role>("viewer"); // для доступа к роли в сокете
   useEffect(() => {
     roleRef.current = role;
   }, [role]);
 
-  // Инициализация страницы при загрузке книги
+  // 💾 Загрузка текущей страницы из localStorage для viewer
+  useEffect(() => {
+    if (role === "viewer") {
+      const savedPage = localStorage.getItem("viewerPage");
+      if (savedPage) {
+        setCurrentPage(parseInt(savedPage, 10));
+      }
+    } else {
+      setCurrentPage(0); // 🔁 reader всегда с начала
+    }
+  }, [role]);
+
+  // 📖 Инициализация Flipbook на нужной странице
   const handleBookInit = () => {
     const flipBook = flipBookRef.current?.pageFlip();
-    if (flipBook && typeof flipBook.flip === "function") {
+    if (flipBook) {
       flipBook.flip(currentPage);
     }
   };
 
-  // Обработка загрузки PDF
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
     setPdfFile(pdf);
   };
 
-  // Получаем текст для страницы
   const fetchPageText = async (pageIndex: number) => {
     if (!pdfFile) return;
     try {
@@ -57,21 +66,18 @@ const App = () => {
     }
   };
 
-  // Загружаем текст при переключении страницы
   useEffect(() => {
     if (pdfFile && currentPage >= 0 && currentPage < numPages && !pdfText[currentPage]) {
       fetchPageText(currentPage);
     }
   }, [currentPage, pdfFile, pdfText, numPages]);
 
-  // Обновляем текст страницы
   useEffect(() => {
     if (pdfText[currentPage]) {
       setPageText(pdfText[currentPage]);
     }
   }, [currentPage, pdfText]);
 
-  // Синтез речи
   const speakText = (text: string) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -95,38 +101,22 @@ const App = () => {
 
   const isReader = role === "reader";
 
-useEffect(() => {
-  const handlePageFlip = (page: number) => {
-    console.log("📥 Received flip:", page);
-    const flipBook = flipBookRef.current?.pageFlip();
-    if (flipBook && flipBook.getCurrentPageIndex() !== page) {
-      isFlipping.current = true;
-      flipBook.flip(page);
-      setCurrentPage(page);
-    }
-  };
-
-  socket.on("page-flip", handlePageFlip);
-
-  return () => {
-    socket.off("page-flip", handlePageFlip); // Очистка обработчика
-  };
-}, []);
-
-useEffect(() => {
-  if (role === "reader") {
-    const timer = setTimeout(() => {
-      if (socket.connected) {
-        socket.emit("reset-page");
+  useEffect(() => {
+    const handlePageFlip = (page: number) => {
+      console.log("📥 Received flip:", page);
+      const flipBook = flipBookRef.current?.pageFlip();
+      if (flipBook && flipBook.getCurrentPageIndex() !== page) {
+        isFlipping.current = true;
+        flipBook.flip(page);
+        setCurrentPage(page);
       }
-    }, 500);
+    };
 
-    return () => clearTimeout(timer);
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-
-
+    socket.on("page-flip", handlePageFlip);
+    return () => {
+      socket.off("page-flip", handlePageFlip);
+    };
+  }, []);
 
   return (
     <div className="App">
@@ -152,7 +142,7 @@ useEffect(() => {
         error={<p>Failed to load PDF</p>}
       >
         <HTMLFlipBook
-          startZIndex={0} 
+          startZIndex={0}
           key={role}
           width={400}
           height={600}
@@ -180,12 +170,15 @@ useEffect(() => {
           onInit={handleBookInit}
           onFlip={(e) => {
             const page = Number(e.data);
-
             if (!isNaN(page)) {
               setCurrentPage(page);
               setPageText("");
 
-              // Только reader отправляет flip
+              // 💾 Сохраняем только если viewer
+              if (role === "viewer") {
+                localStorage.setItem("viewerPage", String(page));
+              }
+
               if (role === "reader" && !isFlipping.current) {
                 socket.emit("page-flip", page);
                 console.log("📤 Emit page flip:", page);
