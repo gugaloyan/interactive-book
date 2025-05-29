@@ -11,6 +11,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pd
 
 type Role = "reader" | "viewer";
 
+// Подключаем сокет
 const socket = io("https://flipbook-backend-1.onrender.com");
 
 const App = () => {
@@ -23,6 +24,12 @@ const App = () => {
   const flipBookRef = useRef<any>(null);
   const isFlipping = useRef(false);
 
+  const roleRef = useRef<Role>("viewer"); // для доступа к роли в сокете
+  useEffect(() => {
+    roleRef.current = role;
+  }, [role]);
+
+  // Инициализация страницы при загрузке книги
   const handleBookInit = () => {
     const flipBook = flipBookRef.current?.pageFlip();
     if (flipBook && typeof flipBook.flip === "function") {
@@ -30,18 +37,13 @@ const App = () => {
     }
   };
 
-  useEffect(() => {
-    const flipBook = flipBookRef.current?.pageFlip();
-    if (flipBook && typeof flipBook.flip === "function") {
-      flipBook.flip(currentPage);
-    }
-  }, [role]);
-
+  // Обработка загрузки PDF
   const onDocumentLoadSuccess = (pdf: any) => {
     setNumPages(pdf.numPages);
     setPdfFile(pdf);
   };
 
+  // Получаем текст для страницы
   const fetchPageText = async (pageIndex: number) => {
     if (!pdfFile) return;
     try {
@@ -55,18 +57,21 @@ const App = () => {
     }
   };
 
+  // Загружаем текст при переключении страницы
   useEffect(() => {
     if (pdfFile && currentPage >= 0 && currentPage < numPages && !pdfText[currentPage]) {
       fetchPageText(currentPage);
     }
   }, [currentPage, pdfFile, pdfText, numPages]);
 
+  // Обновляем текст страницы
   useEffect(() => {
     if (pdfText[currentPage]) {
       setPageText(pdfText[currentPage]);
     }
   }, [currentPage, pdfText]);
 
+  // Синтез речи
   const speakText = (text: string) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -90,25 +95,25 @@ const App = () => {
 
   const isReader = role === "reader";
 
-useEffect(() => {
-  const flipBook = flipBookRef.current?.pageFlip();
+  // Один раз подписываемся на событие "page-flip"
+  useEffect(() => {
+    socket.on("page-flip", (page: number) => {
+      console.log("📥 Viewer received flip:", page);
 
-  const handlePageFlip = (page: number) => {
-    console.log("📥 Viewer received flip:", page);
-    if (role === "viewer" && flipBook && flipBook.getCurrentPageIndex() !== page) {
-      isFlipping.current = true;
-      flipBook.flip(page);
-      setCurrentPage(page);
-    }
-  };
+      const flipBook = flipBookRef.current?.pageFlip();
+      const isViewer = roleRef.current === "viewer";
 
-  socket.on("page-flip", handlePageFlip);
+      if (flipBook && isViewer && flipBook.getCurrentPageIndex() !== page) {
+        isFlipping.current = true;
+        flipBook.flip(page);
+        setCurrentPage(page);
+      }
+    });
 
-  return () => {
-    socket.off("page-flip", handlePageFlip);
-  };
-}, [role]);
-
+    return () => {
+      socket.off("page-flip");
+    };
+  }, []);
 
   return (
     <div className="App">
@@ -134,6 +139,7 @@ useEffect(() => {
         error={<p>Failed to load PDF</p>}
       >
         <HTMLFlipBook
+          startZIndex={0} 
           key={role}
           width={400}
           height={600}
@@ -148,7 +154,6 @@ useEffect(() => {
           drawShadow
           flippingTime={1000}
           usePortrait
-          startZIndex={0}
           autoSize
           clickEventForward
           useMouseEvents={false}
@@ -162,17 +167,18 @@ useEffect(() => {
           onInit={handleBookInit}
           onFlip={(e) => {
             const page = Number(e.data);
+
             if (!isNaN(page)) {
-              if (!isFlipping.current) {
-                setCurrentPage(page);
-                setPageText("");
-                if (isReader) {
-                  socket.emit("page-flip", page);
-                  console.log("emit page flip:", page);
-                }
-              } else {
-                isFlipping.current = false;
+              setCurrentPage(page);
+              setPageText("");
+
+              // Только reader отправляет flip
+              if (role === "reader" && !isFlipping.current) {
+                socket.emit("page-flip", page);
+                console.log("📤 Emit page flip:", page);
               }
+
+              isFlipping.current = false;
               window.speechSynthesis.cancel();
             }
           }}
@@ -205,7 +211,7 @@ useEffect(() => {
             ⏹ Stop Reading
           </button>
           <span className="numPages">
-           Pages {numPages}
+            Pages {numPages}
           </span>
         </div>
       )}
