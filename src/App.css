@@ -58,3 +58,14 @@ button:disabled {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 999;
 }
+
+.numPages {
+   background-color: #f9fafc;
+  border: none;
+  color: rgb(11, 5, 5);
+  padding: 8px 16px;
+  font-size: 14px;
+  border-radius: 6px;
+  /* cursor: pointer; */
+  transition: background-color 0.3s ease;
+}

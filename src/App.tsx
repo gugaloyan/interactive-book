@@ -91,19 +91,17 @@ const App = () => {
   const isReader = role === "reader";
 
   useEffect(() => {
-    socket.on("page-flip", (page: number) => {
-      const flipBook = flipBookRef.current?.pageFlip();
-      if (role === "viewer" && flipBook && flipBook.getCurrentPageIndex() !== page) {
-        isFlipping.current = true;
-        flipBook.flip(page);
-        setCurrentPage(page);
-      }
-    });
+  socket.on("page-flip", (page: number) => {
+    console.log("📥 Viewer received flip:", page);
+    const flipBook = flipBookRef.current?.pageFlip();
+    if (role === "viewer" && flipBook && flipBook.getCurrentPageIndex() !== page) {
+      isFlipping.current = true;
+      flipBook.flip(page);
+      setCurrentPage(page);
+    }
+  });
+}, [role]);
 
-    return () => {
-      socket.off("page-flip");
-    };
-  }, [role]);
 
   return (
     <div className="App">
@@ -164,6 +162,7 @@ const App = () => {
               if (isReader) {
                 isFlipping.current = true;
                 socket.emit("page-flip", page);
+                console.log("emit page flip:", page);
               }
 
               window.speechSynthesis.cancel();
@@ -197,6 +196,9 @@ const App = () => {
           <button onClick={() => window.speechSynthesis.cancel()}>
             ⏹ Stop Reading
           </button>
+          <span className="numPages">
+           Pages {numPages}
+          </span>
         </div>
       )}
     </div>
